@@ -186,7 +186,3 @@ MIT License - See LICENSE file for details
 ## 🤝 Contributing
 
 Contributions are welcome! Please read the contributing guidelines before submitting PRs.
-
-## 📧 Support
-
-For support, email support@growos.com or join our Discord community.
