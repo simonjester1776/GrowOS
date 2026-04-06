@@ -184,6 +184,50 @@ const migrations = [
     expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
   );
+  `,
+  
+  // Firmware versions
+  `
+  CREATE TABLE IF NOT EXISTS firmware_versions (
+    id SERIAL PRIMARY KEY,
+    version VARCHAR(20) NOT NULL,
+    device_type VARCHAR(20) NOT NULL CHECK (device_type IN ('guardian', 'buddy')),
+    changelog TEXT,
+    is_stable BOOLEAN DEFAULT false,
+    file_path VARCHAR(500),
+    checksum VARCHAR(64),
+    file_size INTEGER,
+    uploaded_by INTEGER REFERENCES users(id),
+    download_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(version, device_type)
+  );
+  `,
+  
+  // OTA updates
+  `
+  CREATE TABLE IF NOT EXISTS ota_updates (
+    id SERIAL PRIMARY KEY,
+    device_id VARCHAR(32) NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+    firmware_version VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'downloading', 'installing', 'completed', 'failed', 'rolled_back')),
+    progress INTEGER DEFAULT 0,
+    error_message TEXT,
+    initiated_by INTEGER REFERENCES users(id),
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  );
+  `,
+  
+  // Index for OTA updates
+  `
+  CREATE INDEX IF NOT EXISTS idx_ota_updates_device ON ota_updates (device_id, created_at DESC);
+  `,
+  
+  // Add is_admin to users
+  `
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;
   `
 ];
 

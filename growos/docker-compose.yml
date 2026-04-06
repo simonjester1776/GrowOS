@@ -7,44 +7,85 @@ services:
       - "1883:1883"
       - "9001:9001"
     volumes:
-      - ./backend/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./backend/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_logs:/mosquitto/log
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-t", "test", "-m", "test", "-r"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   postgres:
     image: timescale/timescaledb:latest-pg16
     environment:
-      POSTGRES_USER: growos
-      POSTGRES_PASSWORD: growos_dev
-      POSTGRES_DB: growos
+      POSTGRES_USER: ${POSTGRES_USER:-growos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-growos_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-growos}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-growos} -d ${POSTGRES_DB:-growos}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   backend:
     build: ./backend
     ports:
       - "3000:3000"
     environment:
-      NODE_ENV: development
-      DATABASE_URL: postgresql://growos:growos_dev@postgres:5432/growos
-      MQTT_HOST: mosquitto
-      MQTT_PORT: 1883
-      JWT_SECRET: change_me_in_production
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      DATABASE_URL: ${DATABASE_URL:-postgresql://growos:growos_dev@postgres:5432/growos}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      MQTT_HOST: ${MQTT_HOST:-mosquitto}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      MQTT_USERNAME: ${MQTT_USERNAME:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:5173}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      FIRMWARE_PATH: ${FIRMWARE_PATH:-/app/firmware_files}
     depends_on:
-      - postgres
-      - mosquitto
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+      redis:
+        condition: service_healthy
     volumes:
-      - ./backend/src:/app/src
+      - ./firmware_files:/app/firmware_files
+      - ./logs:/app/logs
     restart: unless-stopped
 
   web:
     build: ./web
     ports:
       - "80:80"
+    environment:
+      - VITE_API_URL=${API_URL:-http://localhost:3000/api/v1}
+      - VITE_SOCKET_URL=${API_URL:-http://localhost:3000}
     depends_on:
       - backend
     restart: unless-stopped
@@ -53,3 +94,4 @@ volumes:
   mosquitto_data:
   mosquitto_logs:
   postgres_data:
+  redis_data:

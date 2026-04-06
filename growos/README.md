@@ -1,106 +1,111 @@
 # GrowOS - Plant Monitoring System
 
-A local-first plant monitoring system for BC growers, featuring ESP32-based Guardian hubs and nRF52832-based Buddy probes communicating over LoRa 915MHz.
+[![CI/CD](https://github.com/yourusername/growos/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/yourusername/growos/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
 
-## 🌱 Architecture Overview
+A local-first, production-ready plant monitoring system for growers. Features ESP32-based Guardian hubs and nRF52832-based Buddy probes communicating over LoRa 915MHz.
 
-```
-┌─────────────────────────────────────────────────┐
-│                  CLOUD (OPTIONAL)               │
-│  • AWS IoT Core / Self-hosted MQTT             │
-│  • End-to-end encrypted                         │
-│  • Data backup only (local-first design)        │
-└─────────────────────────────────────────────────┘
-                            ↑
-┌─────────────────────────────────────────────────┐
-│                 GROW GUARDIAN (Hub)             │
-│  • MQTT broker (Mosquitto)                      │
-│  • HTTP REST API (ESP32 AsyncWebServer)         │
-│  • LoRa gateway (single-channel, 915MHz)        │
-│  • SQLite database (local storage)              │
-└─────────────────────────────────────────────────┘
-         ↑               ↑               ↑
-┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-│   Buddy 1   │ │   Buddy 2   │ │   Buddy N   │
-│ • LoRa star │ • LoRa star   │ • LoRa star   │
-│ • Sleep 99% │ • ACK/retry   │ • 20+ nodes   │
-└─────────────┘ └─────────────┘ └─────────────┘
-```
+## 🌟 Features
 
-## 📁 Project Structure
+- **Real-time Monitoring**: Temperature, humidity, CO₂, light, VPD tracking
+- **Soil Sensors**: Moisture, EC, pH from Buddy probes
+- **Smart Alerts**: Configurable thresholds with email/push notifications
+- **Relay Control**: 4-channel relay control for automation
+- **VPD Analysis**: Optimize your grow environment
+- **OTA Updates**: Remote firmware updates for devices
+- **Offline Support**: PWA with service worker caching
+- **Dark Mode**: Easy on the eyes during night checks
+- **Mobile Ready**: Responsive design works on all devices
+
+## 🏗️ Architecture
 
 ```
-growos/
-├── backend/          # Node.js REST API + MQTT broker bridge
-│   ├── src/
-│   │   ├── routes/       # API routes (auth, devices, sensors, alerts, relays)
-│   │   ├── services/     # MQTT client, cron jobs
-│   │   ├── db/           # Database pool and migrations
-│   │   └── utils/        # Logger and utilities
-│   ├── package.json
-│   └── .env.example
-├── web/              # React + TypeScript Dashboard
-│   ├── src/
-│   │   ├── pages/        # Dashboard, Devices, Alerts, Analytics
-│   │   ├── hooks/        # API hooks and Socket.io hooks
-│   │   └── types/        # TypeScript type definitions
-│   └── package.json
-├── firmware/
-│   ├── guardian/     # ESP32-S3 hub firmware (C++/PlatformIO)
-│   └── buddy/        # nRF52832 probe firmware (C++/PlatformIO)
-└── docker-compose.yml
+┌─────────────────────────────────────────────────────────────┐
+│                        CLOUD (Optional)                      │
+│         AWS IoT Core / Self-hosted MQTT Bridge               │
+│              End-to-end encrypted, backup only               │
+└─────────────────────────────────────────────────────────────┘
+                              ↑
+┌─────────────────────────────────────────────────────────────┐
+│                    GROW GUARDIAN (Hub)                       │
+│  • MQTT Broker (Mosquitto)                                   │
+│  • REST API (Node.js + Express)                              │
+│  • LoRa Gateway (915MHz)                                     │
+│  • PostgreSQL + TimescaleDB                                  │
+│  • Redis Caching                                             │
+└─────────────────────────────────────────────────────────────┘
+           ↑                    ↑                    ↑
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│    Buddy 1      │  │    Buddy 2      │  │    Buddy N      │
+│  • LoRa Star    │  │  • LoRa Star    │  │  • LoRa Star    │
+│  • 15min TX     │  │  • ACK/Retry    │  │  • 20+ nodes    │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
 ```
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 20+
-- PostgreSQL 16+ (with TimescaleDB extension recommended)
-- MQTT Broker (Mosquitto)
-- PlatformIO CLI (for firmware)
 
-### 1. Backend Setup
+- Docker 24.0+ and Docker Compose 2.20+
+- Node.js 20+ (for development)
+- 4GB RAM, 20GB disk space
 
-```bash
-cd backend
-cp .env.example .env
-npm install
-npm run db:migrate
-npm run dev
-```
-
-### 2. Web Dashboard
+### Installation
 
 ```bash
-cd web
-npm install
-npm run dev
+# Clone repository
+git clone https://github.com/yourusername/growos.git
+cd growos
+
+# Run setup script
+./scripts/setup.sh
+
+# Start services
+docker-compose up -d
+
+# Run migrations
+cd backend && npm run db:migrate
 ```
 
-### 3. Full Stack (Docker)
+### Access
 
-```bash
-docker-compose up
+- **Web Dashboard**: http://localhost
+- **API**: http://localhost:3000
+- **API Docs**: http://localhost:3000/api-docs
+- **MQTT**: localhost:1883
+
+## 📁 Project Structure
+
+```
+growos/
+├── backend/              # Node.js REST API + MQTT
+│   ├── src/
+│   │   ├── routes/       # API endpoints
+│   │   ├── middleware/   # Auth, validation, errors
+│   │   ├── services/     # MQTT, Redis, cron
+│   │   └── db/           # Migrations, pool
+│   ├── config/           # Mosquitto config
+│   ├── Dockerfile
+│   └── package.json
+├── web/                  # React + TypeScript Dashboard
+│   ├── src/
+│   │   ├── pages/        # Dashboard, Devices, Alerts
+│   │   ├── hooks/        # API hooks, WebSocket
+│   │   ├── components/   # UI components
+│   │   └── types/        # TypeScript types
+│   ├── public/           # PWA manifest, service worker
+│   ├── Dockerfile
+│   └── package.json
+├── firmware/
+│   ├── guardian/         # ESP32-S3 firmware
+│   └── buddy/            # nRF52832 firmware
+├── scripts/              # Deployment, backup, setup
+├── docker-compose.yml
+└── DEPLOYMENT.md         # Production deployment guide
 ```
 
-## 🔧 Hardware Components
-
-### Guardian (Room Hub)
-- **MCU**: ESP32-S3 (Dual-core, WiFi 4/Bluetooth 5)
-- **LoRa**: RA-01H (SX1276, 915MHz NA)
-- **Sensors**: SCD41 (CO₂), SHT45 (Temp/Humidity), BMP388 (Pressure), BH1750 (Light), SGP40 (VOC)
-- **Power**: 10,000mAh LiPo, USB-C PD, Solar input with MPPT
-- **Relays**: 4x 10A/120V relay outputs
-- **Storage**: 16GB microSD
-
-### Buddy (Plant Probe)
-- **MCU**: nRF52832 (Bluetooth 5.2)
-- **LoRa**: E22-900M30S (SX1262, 915MHz NA, 5km range)
-- **Sensors**: Capacitive moisture, DS18B20 (soil temp), Custom EC sensor
-- **Power**: LIR2450 rechargeable coin cell (1+ years @ 15min intervals)
-- **Rating**: IP68 (1m submersible)
-
-## 📡 API Endpoints
+## 🔌 API Endpoints
 
 ### Authentication
 - `POST /api/v1/auth/login` - User login
@@ -109,80 +114,161 @@ docker-compose up
 
 ### Devices
 - `GET /api/v1/devices` - List devices
-- `POST /api/v1/devices/register` - Register new device
+- `POST /api/v1/devices/register` - Register device
 - `GET /api/v1/devices/:deviceId` - Get device details
-- `PATCH /api/v1/devices/:deviceId` - Update device
-- `POST /api/v1/devices/:deviceId/command` - Send command to device
+- `POST /api/v1/devices/:deviceId/command` - Send command
 
 ### Sensors
 - `GET /api/v1/sensors/:deviceId/latest` - Latest readings
 - `GET /api/v1/sensors/:deviceId/history` - Historical data
-- `GET /api/v1/sensors/:deviceId/export` - Export data (CSV/JSON)
+- `GET /api/v1/sensors/:deviceId/export` - Export (CSV/JSON)
 
 ### Alerts
 - `GET /api/v1/alerts/rules/:deviceId` - Get alert rules
 - `POST /api/v1/alerts/rules` - Create alert rule
 - `GET /api/v1/alerts/history` - Alert history
-- `POST /api/v1/alerts/history/:alertId/acknowledge` - Acknowledge alert
 
 ### Dashboard
 - `GET /api/v1/dashboard/overview` - Dashboard overview
 - `GET /api/v1/dashboard/vpd-analysis` - VPD analysis
 
-## 📊 Features
-
-### Real-time Monitoring
-- Live sensor data via WebSocket
-- Temperature, humidity, CO₂, light, VPD tracking
-- Soil moisture, EC, pH from Buddy probes
-
-### Alert System
-- Configurable threshold alerts
-- Email and push notifications
-- Alert history and acknowledgment
-
-### Device Management
-- Guardian and Buddy device registration
-- Relay control (4 channels)
-- Firmware version tracking
-- Battery and signal monitoring
-
-### Analytics
-- VPD (Vapor Pressure Deficit) analysis
-- Environmental trend charts
-- Data export (CSV/JSON)
-- Historical data aggregation
+### Firmware
+- `GET /api/v1/firmware/versions` - List firmware versions
+- `POST /api/v1/firmware/upload` - Upload firmware
+- `POST /api/v1/firmware/update/:deviceId` - Trigger OTA update
 
 ## 🔐 Security
 
-- JWT-based authentication
-- AES-128 encrypted LoRa communication
-- TLS 1.3 for WiFi/HTTP
-- SQLCipher for local database encryption
-- Signed firmware updates (Ed25519)
+- **Authentication**: JWT with refresh tokens
+- **Passwords**: Bcrypt hashing
+- **API**: Rate limiting, input validation
+- **MQTT**: TLS/SSL support
+- **Database**: SQL injection protection
+- **CORS**: Configurable origins
 
-## 🌐 Environment Variables
+## 📊 Monitoring
 
-### Backend
-```env
-NODE_ENV=development
-PORT=3000
-DATABASE_URL=postgresql://growos:growos_dev@localhost:5432/growos
-MQTT_HOST=localhost
-MQTT_PORT=1883
-JWT_SECRET=change_me_in_production
+### Health Checks
+
+```bash
+# Full health check
+curl http://localhost:3000/health
+
+# Kubernetes probes
+curl http://localhost:3000/ready
+curl http://localhost:3000/live
 ```
 
-### Web Dashboard
-```env
-VITE_API_URL=http://localhost:3000/api/v1
-VITE_SOCKET_URL=http://localhost:3000
+### Logs
+
+```bash
+# View all logs
+docker-compose logs -f
+
+# View specific service
+docker-compose logs -f backend
 ```
 
-## 📜 License
+## 💾 Backup
 
-MIT License - See LICENSE file for details
+```bash
+# Full backup
+./scripts/backup.sh full
+
+# Database only
+./scripts/backup.sh data
+
+# Automated daily backups (cron)
+0 2 * * * /path/to/growos/scripts/backup.sh full
+```
+
+## 🚀 Production Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed production deployment instructions.
+
+```bash
+# Production deployment
+./scripts/deploy.sh production
+```
+
+## 🛠️ Development
+
+```bash
+# Start infrastructure
+docker-compose up -d postgres mosquitto redis
+
+# Backend
+cd backend
+npm install
+npm run dev
+
+# Frontend
+cd web
+npm install
+npm run dev
+```
+
+## 🧪 Testing
+
+```bash
+# Backend tests
+cd backend
+npm test
+
+# Frontend tests
+cd web
+npm test
+```
+
+## 🔧 Hardware
+
+### Guardian (Room Hub)
+- **MCU**: ESP32-S3 (Dual-core, WiFi 4/Bluetooth 5)
+- **LoRa**: RA-01H (SX1276, 915MHz NA)
+- **Sensors**: SCD41, SHT45, BMP388, BH1750, SGP40
+- **Power**: 10,000mAh LiPo, USB-C PD, Solar
+- **Relays**: 4x 10A/120V
+
+### Buddy (Plant Probe)
+- **MCU**: nRF52832 (Bluetooth 5.2)
+- **LoRa**: E22-900M30S (SX1262, 915MHz)
+- **Sensors**: Capacitive moisture, DS18B20, EC
+- **Power**: LIR2450 coin cell (1+ years)
+- **Rating**: IP68
+
+## 📱 PWA Features
+
+- **Offline Support**: Service worker caching
+- **Installable**: Add to home screen
+- **Push Notifications**: Real-time alerts
+- **Responsive**: Works on all screen sizes
+- **Dark Mode**: System preference support
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read the contributing guidelines before submitting PRs.
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing`)
+5. Open a Pull Request
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- [PlatformIO](https://platformio.org/) - Embedded development
+- [TimescaleDB](https://www.timescale.com/) - Time-series database
+- [Mosquitto](https://mosquitto.org/) - MQTT broker
+- [shadcn/ui](https://ui.shadcn.com/) - UI components
+
+## 📞 Support
+
+- Documentation: [DEPLOYMENT.md](DEPLOYMENT.md)
+- Issues: [GitHub Issues](https://github.com/yourusername/growos/issues)
+- Email: support@growos.com
+
+---
+
+Built with ❤️ for growers everywhere.

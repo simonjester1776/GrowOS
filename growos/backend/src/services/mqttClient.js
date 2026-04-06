@@ -332,8 +332,16 @@ function isConnected() {
   return client?.connected || false;
 }
 
+function disconnect() {
+  if (client) {
+    client.end(true);
+    client = null;
+  }
+}
+
 module.exports = {
   connect,
+  disconnect,
   publish,
   sendCommand,
   isConnected
