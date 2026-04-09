@@ -116,14 +116,62 @@ router.post('/maintenance/cleanup', requireAdmin, asyncHandler(async (req, res) 
 // Get system logs (admin only)
 router.get('/logs', requireAdmin, asyncHandler(async (req, res) => {
   const { level = 'info', limit = 100, since } = req.query;
+  const fs = require('fs').promises;
+  const path = require('path');
   
-  // This would typically read from a log aggregation service
-  // For now, return a placeholder
-  res.json({
-    success: true,
-    logs: [],
-    message: 'Log retrieval not implemented - use external log aggregation'
-  });
+  try {
+    const logsDir = path.join(process.cwd(), 'logs');
+    const logFile = path.join(logsDir, 'combined.log');
+    
+    // Read log file
+    let logContent = '';
+    try {
+      logContent = await fs.readFile(logFile, 'utf-8');
+    } catch (err) {
+      logger.debug('Log file not found, returning empty logs');
+      return res.json({
+        success: true,
+        logs: [],
+        total: 0
+      });
+    }
+    
+    // Parse JSON logs
+    const logs = logContent
+      .split('\n')
+      .filter(line => line.trim())
+      .map(line => {
+        try {
+          return JSON.parse(line);
+        } catch (e) {
+          return null;
+        }
+      })
+      .filter(log => log !== null && log.level >= level);
+    
+    // Filter by level and timestamp if provided
+    let filtered = logs;
+    if (since) {
+      const sinceDate = new Date(since);
+      filtered = logs.filter(log => {
+        const logDate = new Date(log.timestamp);
+        return logDate >= sinceDate;
+      });
+    }
+    
+    // Return limited results
+    const results = filtered.slice(-Math.min(parseInt(limit) || 100, 1000));
+    
+    res.json({
+      success: true,
+      logs: results,
+      total: filtered.length,
+      returned: results.length
+    });
+  } catch (err) {
+    logger.error('Error retrieving logs:', err);
+    res.status(500).json({ error: 'Failed to retrieve logs' });
+  }
 }));
 
 // Broadcast message to all users (admin only)
@@ -151,30 +199,153 @@ router.post('/broadcast', requireAdmin, asyncHandler(async (req, res) => {
 
 // Get backup status (admin only)
 router.get('/backup/status', requireAdmin, asyncHandler(async (req, res) => {
-  // This would check backup service status
-  res.json({
-    success: true,
-    backup: {
-      lastBackup: null,
-      nextScheduled: null,
-      status: 'not_configured'
-    }
-  });
+  try {
+    // Create backups tracking table if it doesn't exist
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS backups (
+        id SERIAL PRIMARY KEY,
+        backup_type VARCHAR(50),
+        status VARCHAR(50),
+        started_at TIMESTAMP DEFAULT NOW(),
+        completed_at TIMESTAMP,
+        backup_path VARCHAR(255),
+        backup_size BIGINT,
+        error_message TEXT
+      )
+    `);
+    
+    // Get latest backups
+    const result = await pool.query(`
+      SELECT 
+        id,
+        backup_type,
+        status,
+        started_at,
+        completed_at,
+        backup_path,
+        backup_size
+      FROM backups
+      ORDER BY started_at DESC
+      LIMIT 5
+    `);
+    
+    const lastBackup = result.rows[0];
+    
+    res.json({
+      success: true,
+      backup: {
+        lastBackup: lastBackup ? {
+          id: lastBackup.id,
+          type: lastBackup.backup_type,
+          status: lastBackup.status,
+          startedAt: lastBackup.started_at,
+          completedAt: lastBackup.completed_at,
+          size: lastBackup.backup_size,
+          path: lastBackup.backup_path
+        } : null,
+        nextScheduled: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        status: lastBackup ? lastBackup.status : 'never_run',
+        totalBackups: result.rows.length
+      }
+    });
+  } catch (err) {
+    logger.error('Error checking backup status:', err);
+    res.status(500).json({ error: 'Failed to check backup status' });
+  }
 }));
 
 // Trigger backup (admin only)
 router.post('/backup/trigger', requireAdmin, asyncHandler(async (req, res) => {
   const { type = 'full' } = req.body;
   
-  logger.info(`Backup triggered: ${type}`);
-  
-  // This would trigger actual backup process
-  // For now, return placeholder
-  res.json({
-    success: true,
-    message: 'Backup triggered',
-    backupId: `backup-${Date.now()}`
-  });
+  try {
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const fs = require('fs').promises;
+    const path = require('path');
+    
+    const execAsync = promisify(exec);
+    const backupId = `backup-${Date.now()}`;
+    const backupDir = path.join(process.cwd(), 'backups');
+    const backupPath = path.join(backupDir, `${backupId}.sql`);
+    
+    // Ensure backup directory exists
+    await fs.mkdir(backupDir, { recursive: true });
+    
+    // Record backup start in database
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS backups (
+        id SERIAL PRIMARY KEY,
+        backup_type VARCHAR(50),
+        status VARCHAR(50),
+        started_at TIMESTAMP DEFAULT NOW(),
+        completed_at TIMESTAMP,
+        backup_path VARCHAR(255),
+        backup_size BIGINT,
+        error_message TEXT
+      )
+    `);
+    
+    const backupRecord = await pool.query(
+      `INSERT INTO backups (backup_type, status, backup_path) 
+       VALUES ($1, 'in_progress', $2) RETURNING id`,
+      [type, backupPath]
+    );
+    const recordId = backupRecord.rows[0].id;
+    
+    logger.info(`Backup ${recordId} triggered: ${type}`);
+    
+    // Create database dump using pg_dump
+    const dbUrl = process.env.DATABASE_URL || 'postgresql://growos:growos_dev@localhost:5432/growos';
+    const dumpCmd = `pg_dump "${dbUrl}" > "${backupPath}"`;
+    
+    try {
+      await execAsync(dumpCmd, { maxBuffer: 50 * 1024 * 1024 });
+      
+      // Get backup file size
+      const stats = await fs.stat(backupPath);
+      
+      // Update backup record to completed
+      await pool.query(
+        `UPDATE backups 
+         SET status = 'completed', completed_at = NOW(), backup_size = $1
+         WHERE id = $2`,
+        [stats.size, recordId]
+      );
+      
+      logger.info(`Backup ${recordId} completed successfully. Size: ${stats.size} bytes`);
+      
+      res.json({
+        success: true,
+        message: 'Backup completed successfully',
+        backup: {
+          id: recordId,
+          backupId,
+          type,
+          status: 'completed',
+          path: backupPath,
+          size: stats.size
+        }
+      });
+    } catch (execErr) {
+      // Update backup record to failed
+      await pool.query(
+        `UPDATE backups 
+         SET status = 'failed', completed_at = NOW(), error_message = $1
+         WHERE id = $2`,
+        [execErr.message, recordId]
+      );
+      
+      logger.error(`Backup ${recordId} failed:`, execErr);
+      throw execErr;
+    }
+  } catch (err) {
+    logger.error('Backup trigger error:', err);
+    res.status(500).json({ 
+      error: 'Backup failed',
+      message: err.message 
+    });
+  }
 }));
 
 // User activity (admin only)

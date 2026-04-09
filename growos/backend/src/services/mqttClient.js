@@ -229,7 +229,25 @@ async function handleAlertMessage(deviceId, data, app) {
     ...data 
   });
   
-  // TODO: Send push notification via FCM
+  // Send push notification for critical alerts
+  if (data.severity === 'critical' || data.severity === 'error') {
+    try {
+      await sendPushNotification({
+        deviceId,
+        title: `Alert: ${data.metric}`,
+        message: data.message || `${data.metric} triggered an alert`,
+        data: {
+          deviceId,
+          severity: data.severity,
+          metric: data.metric,
+          value: data.value
+        }
+      });
+    } catch (err) {
+      logger.error('Failed to send push notification:', err);
+      // Don't fail the alert handling if push notification fails
+    }
+  }
 }
 
 async function handleStatusMessage(deviceId, data, app) {
@@ -339,10 +357,117 @@ function disconnect() {
   }
 }
 
+/**
+ * Send push notifications for alerts
+ * Supports Firebase Cloud Messaging (FCM) if credentials are configured
+ */
+async function sendPushNotification(payload) {
+  try {
+    // Check if Firebase Admin SDK is available and configured
+    const admin = require('firebase-admin');
+    
+    // Get user devices with FCM tokens
+    const result = await db.query(
+      `SELECT DISTINCT user_id FROM devices WHERE device_id = $1`,
+      [payload.deviceId]
+    );
+    
+    if (result.rows.length === 0) {
+      logger.debug(`No device owner found for ${payload.deviceId}`);
+      return;
+    }
+    
+    const userId = result.rows[0].user_id;
+    
+    // Get FCM tokens for the user
+    const tokensResult = await db.query(
+      `CREATE TABLE IF NOT EXISTS fcm_tokens (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL,
+        token VARCHAR(255) NOT NULL UNIQUE,
+        device_name VARCHAR(100),
+        created_at TIMESTAMP DEFAULT NOW(),
+        last_used TIMESTAMP DEFAULT NOW()
+      );
+       SELECT token FROM fcm_tokens WHERE user_id = $1 AND token IS NOT NULL`,
+      [userId]
+    );
+    
+    const tokens = tokensResult.rows.map(r => r.token);
+    
+    if (tokens.length === 0) {
+      logger.debug(`No FCM tokens registered for user ${userId}`);
+      return;
+    }
+    
+    // Send notification to all user tokens
+    const message = {
+      notification: {
+        title: payload.title,
+        body: payload.message
+      },
+      data: payload.data || {},
+      android: {
+        priority: 'high',
+        notification: {
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          sound: 'default',
+          icon: 'notification_icon'
+        }
+      },
+      apns: {
+        payload: {
+          aps: {
+            alert: {
+              title: payload.title,
+              body: payload.message
+            },
+            sound: 'default',
+            badge: 1
+          }
+        }
+      }
+    };
+    
+    const sendResults = await admin.messaging().sendMulticast({
+      ...message,
+      tokens
+    });
+    
+    logger.info(`Push notification sent to ${sendResults.successCount} devices, failed: ${sendResults.failureCount}`);
+    
+    // Handle failed tokens
+    if (sendResults.failureCount > 0) {
+      sendResults.responses.forEach((resp, idx) => {
+        if (!resp.success) {
+          const token = tokens[idx];
+          logger.warn(`Failed to send notification to token ${token}:`, resp.error);
+          
+          // Remove invalid tokens
+          if (resp.error?.code === 'messaging/invalid-registration-token' ||
+              resp.error?.code === 'messaging/registration-token-not-registered') {
+            db.query('DELETE FROM fcm_tokens WHERE token = $1', [token]).catch(e => {
+              logger.error('Failed to delete invalid FCM token:', e);
+            });
+          }
+        }
+      });
+    }
+  } catch (err) {
+    // FCM not configured or Admin SDK not available - this is OK
+    if (err.code === 'MODULE_NOT_FOUND' || err.message?.includes('not initialized')) {
+      logger.debug('Firebase Admin SDK not configured for push notifications');
+    } else {
+      logger.warn('Could not send push notification:', err.message);
+    }
+  }
+}
+
 module.exports = {
   connect,
   disconnect,
   publish,
   sendCommand,
-  isConnected
+  isConnected,
+  sendPushNotification
 };
